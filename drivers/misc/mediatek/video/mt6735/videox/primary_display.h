@@ -1,8 +1,8 @@
 #ifndef _PRIMARY_DISPLAY_H_
 #define _PRIMARY_DISPLAY_H_
 
-#include "ddp_hal.h"
-#include "ddp_manager.h"
+#include "../ddp_hal.h"
+#include "../ddp_manager.h"
 #include <linux/types.h>
 #include "disp_lcm.h"
 #include "disp_session.h"
