@@ -767,6 +767,7 @@ can_read_key:
 		if (ret == 0)
 			ret = key->type->read(key, buffer, buflen);
 		up_read(&key->sem);
+
 	}
 
 error2:
