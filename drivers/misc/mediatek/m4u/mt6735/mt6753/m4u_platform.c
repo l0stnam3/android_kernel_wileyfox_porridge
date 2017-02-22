@@ -1,6 +1,6 @@
 #include "m4u_platform.h"
 #include "m4u_priv.h"
-#include "../m4u_hw.h"
+#include "m4u_hw.h"
 
 unsigned int gM4UTagCount[]  = {32};
 
