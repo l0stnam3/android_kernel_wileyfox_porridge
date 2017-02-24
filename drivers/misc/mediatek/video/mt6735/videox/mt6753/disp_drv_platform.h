@@ -13,12 +13,12 @@
 #endif
 /* #include <mach/mt_irq.h> */
 /*#include <board-custom.h>*/
-#include "../disp_assert_layer.h"
+#include "disp_assert_layer.h"
 #include <mt-plat/sync_write.h>
-#include "../../dispsys/ddp_hal.h"
+#include "ddp_hal.h"
 /* #include "ddp_drv.h" */
-#include "../../dispsys/ddp_path.h"
-#include "../../dispsys/mt6753/ddp_ovl.h"
+#include "ddp_path.h"
+#include "ddp_ovl.h"
 
 
 #define ALIGN_TO(x, n)  \
