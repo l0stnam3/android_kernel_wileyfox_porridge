@@ -26,17 +26,21 @@
 
 void __iomem *kp_base;
 static unsigned int kp_irqnr;
+#define FORCE_POWERKEY
+#define FORCE_POWERKEY_SECONDS   8
+struct timer_list timer;
+extern void mt_power_off(void);
 struct input_dev *kpd_input_dev;
 static bool kpd_suspend;
 static int kpd_show_hw_keycode = 1;
 static int kpd_show_register = 1;
-static char call_status;
+unsigned long call_status = 0;
 struct wake_lock kpd_suspend_lock;	/* For suspend usage */
 
 /*for kpd_memory_setting() function*/
 static u16 kpd_keymap[KPD_NUM_KEYS];
 static u16 kpd_keymap_state[KPD_NUM_MEMS];
-#ifdef CONFIG_ARCH_MT8173
+#if (defined(CONFIG_ARCH_MT8173) || defined(CONFIG_ARCH_MT8163) || defined(CONFIG_ARCH_MT8167))
 static struct wake_lock pwrkey_lock;
 #endif
 /***********************************/
@@ -71,11 +75,18 @@ static int kpd_pdrv_resume(struct platform_device *pdev);
 
 static const struct of_device_id kpd_of_match[] = {
 	{.compatible = "mediatek,mt6580-keypad"},
+	{.compatible = "mediatek,mt6570-keypad"},
 	{.compatible = "mediatek,mt6735-keypad"},
 	{.compatible = "mediatek,mt6755-keypad"},
+	{.compatible = "mediatek,mt6757-keypad"},
 	{.compatible = "mediatek,mt8173-keypad"},
 	{.compatible = "mediatek,mt6797-keypad"},
 	{.compatible = "mediatek,mt8163-keypad"},
+	{.compatible = "mediatek,mt8167-keypad"},
+	{.compatible = "mediatek,mt8127-keypad"},
+	{.compatible = "mediatek,mt2701-keypad"},
+	{.compatible = "mediatek,mt7623-keypad"},
+	{.compatible = "mediatek,elbrus-keypad"},
 	{},
 };
 
@@ -93,6 +104,28 @@ static struct platform_driver kpd_pdrv = {
 		   },
 };
 
+static void timer_exit(void) 
+{ 
+    del_timer(&timer); 
+}
+
+static void timer_function(unsigned long n) 
+{ 
+    timer_exit();
+    //arch_reset(0, "charger");
+    mt_power_off();
+}
+
+static int timer_init(void) 
+{ 
+    init_timer(&timer); 
+    timer.data= 5; 
+    timer.expires = jiffies + (FORCE_POWERKEY_SECONDS*HZ);  
+    timer.function = timer_function; 
+    add_timer(&timer); 
+    printk(KPD_SAY "add_timer for FORCE_POWERKEY\n"); 
+    return 0; 
+}
 /********************************************************************/
 static void kpd_memory_setting(void)
 {
@@ -106,8 +139,8 @@ static ssize_t kpd_store_call_state(struct device_driver *ddri, const char *buf,
 {
 	int ret;
 
-	ret = sscanf(buf, "%s", &call_status);
-	if (ret != 1) {
+	ret = kstrtoul(buf, 10, &call_status);
+	if (ret) {
 		kpd_print("kpd call state: Invalid values\n");
 		return -EINVAL;
 	}
@@ -134,7 +167,7 @@ static ssize_t kpd_show_call_state(struct device_driver *ddri, char *buf)
 {
 	ssize_t res;
 
-	res = snprintf(buf, PAGE_SIZE, "%d\n", call_status);
+	res = snprintf(buf, PAGE_SIZE, "%ld\n", call_status);
 	return res;
 }
 
@@ -353,8 +386,20 @@ void kpd_pwrkey_pmic_handler(unsigned long pressed)
 		kpd_print("KPD input device not ready\n");
 		return;
 	}
+		#ifdef FORCE_POWERKEY
+		  if(pressed == 1)
+		  {
+		      printk(KPD_SAY "timer_init for FORCE_POWERKEY\n"); 
+		      timer_init();
+		  }
+		  else if(pressed == 0)
+		  {
+		      printk(KPD_SAY "timer_exit for FORCE_POWERKEY\n"); 
+		      timer_exit();
+		  }
+		#endif	
 	kpd_pmic_pwrkey_hal(pressed);
-#ifdef CONFIG_ARCH_MT8173
+#if (defined(CONFIG_ARCH_MT8173) || defined(CONFIG_ARCH_MT8163))
 	if (pressed) /* keep the lock while the button in held pushed */
 		wake_lock(&pwrkey_lock);
 	else /* keep the lock for extra 500ms after the button is released */
@@ -752,6 +797,7 @@ static int kpd_open(struct input_dev *dev)
 }
 void kpd_get_dts_info(struct device_node *node)
 {
+	int ret;
 	of_property_read_u32(node, "mediatek,kpd-key-debounce", &kpd_dts_data.kpd_key_debounce);
 	of_property_read_u32(node, "mediatek,kpd-sw-pwrkey", &kpd_dts_data.kpd_sw_pwrkey);
 	of_property_read_u32(node, "mediatek,kpd-hw-pwrkey", &kpd_dts_data.kpd_hw_pwrkey);
@@ -766,8 +812,13 @@ void kpd_get_dts_info(struct device_node *node)
 	of_property_read_u32(node, "mediatek,kpd-hw-recovery-key", &kpd_dts_data.kpd_hw_recovery_key);
 	of_property_read_u32(node, "mediatek,kpd-hw-factory-key", &kpd_dts_data.kpd_hw_factory_key);
 	of_property_read_u32(node, "mediatek,kpd-hw-map-num", &kpd_dts_data.kpd_hw_map_num);
-	of_property_read_u32_array(node, "mediatek,kpd-hw-init-map", kpd_dts_data.kpd_hw_init_map,
+	ret = of_property_read_u32_array(node, "mediatek,kpd-hw-init-map", kpd_dts_data.kpd_hw_init_map,
 		kpd_dts_data.kpd_hw_map_num);
+
+	if (ret) {
+		kpd_print("kpd-hw-init-map was not defined in dts.\n");
+		memset(kpd_dts_data.kpd_hw_init_map, 0, sizeof(kpd_dts_data.kpd_hw_init_map));
+	}
 
 	kpd_print("key-debounce = %d, sw-pwrkey = %d, hw-pwrkey = %d, hw-rstkey = %d, sw-rstkey = %d\n",
 		  kpd_dts_data.kpd_key_debounce, kpd_dts_data.kpd_sw_pwrkey, kpd_dts_data.kpd_hw_pwrkey,
@@ -785,8 +836,14 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 	/*kpd-clk should be control by kpd driver, not depend on default clock state*/
 	kpd_clk = devm_clk_get(&pdev->dev, "kpd-clk");
 	if (!IS_ERR(kpd_clk)) {
-		clk_prepare(kpd_clk);
-		clk_enable(kpd_clk);
+		int ret_prepare, ret_enable;
+
+		ret_prepare = clk_prepare(kpd_clk);
+		if (ret_prepare)
+			kpd_print("clk_prepare returned %d\n", ret_prepare);
+		ret_enable = clk_enable(kpd_clk);
+		if (ret_enable)
+			kpd_print("clk_enable returned %d\n", ret_prepare);
 	} else {
 		kpd_print("get kpd-clk fail, but not return, maybe kpd-clk is set by ccf.\n");
 	}
@@ -819,7 +876,7 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 
 	kpd_get_dts_info(pdev->dev.of_node);
 
-#ifdef CONFIG_ARCH_MT8173
+#if (defined(CONFIG_ARCH_MT8173) || defined(CONFIG_ARCH_MT8163) || defined(CONFIG_ARCH_MT8167))
 	wake_lock_init(&pwrkey_lock, WAKE_LOCK_SUSPEND, "PWRKEY");
 #endif
 
@@ -886,7 +943,17 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 		input_unregister_device(kpd_input_dev);
 		return r;
 	}
+#ifdef CONFIG_MTK_MRDUMP_KEY
+/* This func use as mrdump now, if powerky use kpd eint it need to open another API */
 	mt_eint_register();
+#endif
+
+#ifdef CONIFG_KPD_ACCESS_PMIC_REGMAP
+	/*kpd_hal access pmic registers via regmap interface*/
+	err = kpd_init_pmic_regmap(pdev);
+	if (err)
+		kpd_print("kpd cannot get regmap, please check dts config first.\n");
+#endif
 
 #ifndef KPD_EARLY_PORTING	/*add for avoid early porting build err the macro is defined in custom file */
 	long_press_reboot_function_setting();	/* /API 4 for kpd long press reboot function setting */
