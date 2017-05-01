@@ -342,7 +342,8 @@ END(vectors)
 	mov	x0, sp
 	mov	x1, #\reason
 	mrs	x2, esr_el1
-	b	bad_mode
+	bl	bad_el0_sync
+	b	ret_to_user
 	.endm
 
 el0_sync_invalid:
